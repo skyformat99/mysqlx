@@ -3,6 +3,7 @@ package mysqlx
 import (
 	"context"
 	"crypto/sha1"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/binary"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 
@@ -46,8 +48,7 @@ func scramble(data []byte, password string) []byte {
 
 func authData(database, username, password string, authData []byte) []byte {
 	if len(authData) != 20 {
-		bugf("authData: expected authData to has 20 bytes, got %d", len(authData))
-		return nil
+		return []byte(bugf("authData: expected authData to has 20 bytes, got %d", len(authData)).Error())
 	}
 
 	res := database + "\x00" + username + "\x00"
@@ -64,13 +65,13 @@ func authData(database, username, password string, authData []byte) []byte {
 // conn is assumed to be stateful.
 type conn struct {
 	transport net.Conn
-	tracef    traceFunc
+	tracef    TraceFunc
 
 	closeOnce sync.Once
 	closeErr  error
 }
 
-func newConn(transport net.Conn, traceF traceFunc) *conn {
+func newConn(transport net.Conn, traceF TraceFunc) *conn {
 	traceF("+++ connection created: %s->%s", transport.LocalAddr(), transport.RemoteAddr())
 
 	return &conn{
@@ -99,7 +100,7 @@ func setDefaults(u *url.URL) error {
 	return nil
 }
 
-func open(dataSource string) (*conn, error) {
+func open(ctx context.Context, dataSource string, openParams *OpenParams) (*conn, error) {
 	u, err := url.Parse(dataSource)
 	if err != nil {
 		return nil, err
@@ -111,7 +112,7 @@ func open(dataSource string) (*conn, error) {
 	// check and handle parameters, extract session variables
 	params := u.Query()
 	vars := make(map[string]string, len(params))
-	traceF := noTrace
+	traceF := openParams.Trace
 	for k, vs := range params {
 		if len(vs) != 1 {
 			return nil, fmt.Errorf("%d values for parameter %q", len(vs), k)
@@ -126,12 +127,20 @@ func open(dataSource string) (*conn, error) {
 		switch k {
 		case "_trace":
 			traceF = getTracef(v)
+		case "_open_timeout":
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse %s: %s", k, err)
+			}
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
 		default:
 			return nil, fmt.Errorf("unexpected parameter %q", k)
 		}
 	}
 
-	conn, err := net.Dial(u.Scheme, u.Host)
+	conn, err := openParams.Dialer.DialContext(ctx, u.Scheme, u.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -143,10 +152,10 @@ func open(dataSource string) (*conn, error) {
 		username = u.User.Username()
 		password, _ = u.User.Password()
 	}
-	if err = c.negotiate(); err != nil {
+	if err = c.negotiate(ctx); err != nil {
 		return nil, err
 	}
-	if err = c.auth(database, username, password); err != nil {
+	if err = c.auth(ctx, database, username, password); err != nil {
 		return nil, err
 	}
 
@@ -157,7 +166,11 @@ func open(dataSource string) (*conn, error) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		if _, err = c.Exec("SET SESSION "+k+" = ?", []driver.Value{vars[k]}); err != nil {
+		nv := []driver.NamedValue{{
+			Ordinal: 1,
+			Value:   vars[k],
+		}}
+		if _, err = c.ExecContext(ctx, "SET SESSION "+k+" = ?", nv); err != nil {
 			return nil, err
 		}
 	}
@@ -165,11 +178,11 @@ func open(dataSource string) (*conn, error) {
 	return c, nil
 }
 
-func (c *conn) negotiate() error {
-	if err := c.writeMessage(&mysqlx_connection.CapabilitiesGet{}); err != nil {
+func (c *conn) negotiate(ctx context.Context) error {
+	if err := c.writeMessage(ctx, &mysqlx_connection.CapabilitiesGet{}); err != nil {
 		return c.close(err)
 	}
-	m, err := c.readMessage()
+	m, err := c.readMessage(ctx)
 	if err != nil {
 		return c.close(err)
 	}
@@ -194,34 +207,34 @@ func (c *conn) negotiate() error {
 	return nil
 }
 
-func (c *conn) auth(database, username, password string) error {
+func (c *conn) auth(ctx context.Context, database, username, password string) error {
 	// TODO use password
 
 	mechName := "MYSQL41"
-	if err := c.writeMessage(&mysqlx_session.AuthenticateStart{
+	if err := c.writeMessage(ctx, &mysqlx_session.AuthenticateStart{
 		MechName: &mechName,
 	}); err != nil {
 		return c.close(err)
 	}
 
-	m, err := c.readMessage()
+	m, err := c.readMessage(ctx)
 	if err != nil {
 		return c.close(err)
 	}
 	cont := m.(*mysqlx_session.AuthenticateContinue)
 
-	if err = c.writeMessage(&mysqlx_session.AuthenticateContinue{
+	if err = c.writeMessage(ctx, &mysqlx_session.AuthenticateContinue{
 		AuthData: authData(database, username, password, cont.AuthData),
 	}); err != nil {
 		return c.close(err)
 	}
 
-	if m, err = c.readMessage(); err != nil {
+	if m, err = c.readMessage(ctx); err != nil {
 		return c.close(err)
 	}
 	_ = m.(*mysqlx_notice.SessionStateChanged)
 
-	if m, err = c.readMessage(); err != nil {
+	if m, err = c.readMessage(ctx); err != nil {
 		return c.close(err)
 	}
 	_ = m.(*mysqlx_session.AuthenticateOk)
@@ -247,12 +260,12 @@ func (c *conn) close(err error) error {
 // Because the sql package maintains a free pool of connections and only calls Close when there's
 // a surplus of idle connections, it shouldn't be necessary for drivers to do their own connection caching.
 func (c *conn) Close() error {
-	if err := c.writeMessage(&mysqlx_connection.Close{}); err != nil {
+	if err := c.writeMessage(context.TODO(), &mysqlx_connection.Close{}); err != nil {
 		return c.close(err)
 	}
 
 	// read one next message, but do not check it is mysqlx.Ok
-	if _, err := c.readMessage(); err != nil {
+	if _, err := c.readMessage(context.TODO()); err != nil {
 		return c.close(err)
 	}
 
@@ -269,6 +282,24 @@ func (c *conn) Begin() (driver.Tx, error) {
 	}, nil
 }
 
+// BeginTx starts and returns a new transaction.
+// If the context is canceled by the user the sql package will
+// call Tx.Rollback before discarding and closing the connection.
+func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	if sql.IsolationLevel(opts.Isolation) != sql.LevelDefault {
+		return nil, bugf("conn.BeginTx: isolation level %d is not supported yet", opts.Isolation)
+	}
+	if opts.ReadOnly {
+		return nil, bugf("conn.BeginTx: read-only transactions are not supported yet")
+	}
+	if _, err := c.ExecContext(ctx, "BEGIN", nil); err != nil {
+		return nil, err
+	}
+	return &tx{
+		c: c,
+	}, nil
+}
+
 // Prepare returns a prepared statement, bound to this connection.
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
 	return &stmt{
@@ -277,26 +308,54 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 	}, nil
 }
 
+// PrepareContext returns a prepared statement, bound to this connection.
+// context is for the preparation of the statement (and so ignored).
+func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	return &stmt{
+		c:     c,
+		query: query,
+	}, nil
+}
+
 // Exec executes a query that doesn't return rows, such as an INSERT or UPDATE.
 func (c *conn) Exec(query string, args []driver.Value) (driver.Result, error) {
+	nv := make([]driver.NamedValue, len(args))
+	for i, arg := range args {
+		nv[i] = driver.NamedValue{
+			Ordinal: i + 1,
+			Value:   arg,
+		}
+	}
+	return c.ExecContext(context.Background(), query, nv)
+}
+
+// ExecContext executes a query that doesn't return rows, such as an INSERT or UPDATE.
+// It honors the context timeout and return when the context is canceled.
+func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	stmt := &mysqlx_sql.StmtExecute{
 		Stmt: []byte(query),
 	}
-	for _, arg := range args {
-		a, err := marshalValue(arg)
+	for i, nv := range args {
+		if nv.Name != "" {
+			return nil, bugf("conn.ExecContext: %q - named values are not supported yet", nv.Name)
+		}
+		if nv.Ordinal != i+1 {
+			return nil, bugf("conn.ExecContext: out-of-order values are not supported yet")
+		}
+		a, err := marshalValue(nv.Value)
 		if err != nil {
 			return nil, err
 		}
 		stmt.Args = append(stmt.Args, a)
 	}
 
-	if err := c.writeMessage(stmt); err != nil {
+	if err := c.writeMessage(ctx, stmt); err != nil {
 		return nil, c.close(err)
 	}
 
 	var result driver.Result = driver.ResultNoRows
 	for {
-		m, err := c.readMessage()
+		m, err := c.readMessage(ctx)
 		if err != nil {
 			return nil, c.close(err)
 		}
@@ -353,18 +412,37 @@ func (c *conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 
 // Query executes a query that may return rows, such as a SELECT.
 func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
+	nv := make([]driver.NamedValue, len(args))
+	for i, arg := range args {
+		nv[i] = driver.NamedValue{
+			Ordinal: i + 1,
+			Value:   arg,
+		}
+	}
+	return c.QueryContext(context.Background(), query, nv)
+}
+
+// QueryContext executes a query that may return rows, such as a SELECT.
+// It honors the context timeout and return when the context is canceled.
+func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	stmt := &mysqlx_sql.StmtExecute{
 		Stmt: []byte(query),
 	}
-	for _, arg := range args {
-		a, err := marshalValue(arg)
+	for i, nv := range args {
+		if nv.Name != "" {
+			return nil, bugf("conn.ExecContext: %q - named values are not supported yet", nv.Name)
+		}
+		if nv.Ordinal != i+1 {
+			return nil, bugf("conn.ExecContext: out-of-order values are not supported yet")
+		}
+		a, err := marshalValue(nv.Value)
 		if err != nil {
 			return nil, err
 		}
 		stmt.Args = append(stmt.Args, a)
 	}
 
-	if err := c.writeMessage(stmt); err != nil {
+	if err := c.writeMessage(ctx, stmt); err != nil {
 		return nil, c.close(err)
 	}
 
@@ -374,7 +452,7 @@ func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 		rows:    make(chan *mysqlx_resultset.Row, rowsCap),
 	}
 	for {
-		m, err := c.readMessage()
+		m, err := c.readMessage(ctx)
 		if err != nil {
 			return nil, c.close(err)
 		}
@@ -398,7 +476,7 @@ func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 		// query with rows
 		case *mysqlx_resultset.Row:
 			rows.rows <- m
-			go rows.runReader()
+			go rows.runReader(ctx)
 			return &rows, nil
 
 		// query without rows
@@ -422,14 +500,18 @@ func (c *conn) Query(query string, args []driver.Value) (driver.Rows, error) {
 }
 
 func (c *conn) Ping(ctx context.Context) error {
-	// TODO use context
-	if _, err := c.Exec("SELECT 'ping'", nil); err != nil {
+	if _, err := c.ExecContext(ctx, "SELECT 'ping'", nil); err != nil {
 		return driver.ErrBadConn
 	}
 	return nil
 }
 
-func (c *conn) writeMessage(m proto.Message) error {
+func (c *conn) writeMessage(ctx context.Context, m proto.Message) error {
+	deadline, _ := ctx.Deadline()
+	if err := c.transport.SetWriteDeadline(deadline); err != nil {
+		return err
+	}
+
 	b, err := proto.Marshal(m)
 	if err != nil {
 		return err
@@ -463,7 +545,12 @@ func (c *conn) writeMessage(m proto.Message) error {
 	return err
 }
 
-func (c *conn) readMessage() (proto.Message, error) {
+func (c *conn) readMessage(ctx context.Context) (proto.Message, error) {
+	deadline, _ := ctx.Deadline()
+	if err := c.transport.SetReadDeadline(deadline); err != nil {
+		return nil, err
+	}
+
 	var head [5]byte
 	if _, err := io.ReadFull(c.transport, head[:]); err != nil {
 		return nil, err
@@ -531,7 +618,7 @@ func (c *conn) readMessage() (proto.Message, error) {
 
 			// TODO expose warnings?
 			c.tracef("<== %T %v: %T %v", f, f, m, m)
-			return c.readMessage()
+			return c.readMessage(ctx)
 		case 2:
 			m = new(mysqlx_notice.SessionVariableChanged)
 			if err := proto.Unmarshal(f.Payload, m); err != nil {
@@ -557,15 +644,15 @@ func (c *conn) readMessage() (proto.Message, error) {
 
 // check interfaces
 var (
-	_ driver.Conn    = (*conn)(nil)
-	_ driver.Execer  = (*conn)(nil)
-	_ driver.Queryer = (*conn)(nil)
-	_ driver.Pinger  = (*conn)(nil)
+	_ driver.Conn               = (*conn)(nil)
+	_ driver.ConnBeginTx        = (*conn)(nil)
+	_ driver.ConnPrepareContext = (*conn)(nil)
+	_ driver.Execer             = (*conn)(nil)
+	_ driver.ExecerContext      = (*conn)(nil)
+	_ driver.Queryer            = (*conn)(nil)
+	_ driver.QueryerContext     = (*conn)(nil)
+	_ driver.Pinger             = (*conn)(nil)
 
 	// TODO
-	// _ driver.ConnBeginTx        = (*conn)(nil)
-	// _ driver.ConnPrepareContext = (*conn)(nil)
-	// _ driver.ExecerContext      = (*conn)(nil)
 	// _ driver.NamedValueChecker  = (*conn)(nil)
-	// _ driver.QueryerContext     = (*conn)(nil)
 )
