@@ -56,8 +56,4 @@ var (
 	_ driver.Stmt             = (*stmt)(nil)
 	_ driver.StmtExecContext  = (*stmt)(nil)
 	_ driver.StmtQueryContext = (*stmt)(nil)
-
-	// TODO
-	// _ driver.ColumnConverter = (*stmt)(nil)
-	// _ driver.NamedValueChecker = (*stmt)(nil)
 )

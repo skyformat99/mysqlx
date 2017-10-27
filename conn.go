@@ -506,6 +506,18 @@ func (c *conn) Ping(ctx context.Context) error {
 	return nil
 }
 
+// CheckNamedValue is called before passing arguments to the driver
+// and is called in place of any ColumnConverter. CheckNamedValue must do type
+// validation and conversion as appropriate for the driver.
+func (c *conn) CheckNamedValue(nv *driver.NamedValue) error {
+	if nv.Name != "" {
+		return bugf("conn.CheckNamedValue: %q - named values are not supported yet", nv.Name)
+	}
+
+	// pass everything to datatypes handling (marshalValue and unmarshalValue)
+	return nil
+}
+
 func (c *conn) writeMessage(ctx context.Context, m proto.Message) error {
 	deadline, _ := ctx.Deadline()
 	if err := c.transport.SetWriteDeadline(deadline); err != nil {
@@ -652,7 +664,5 @@ var (
 	_ driver.Queryer            = (*conn)(nil)
 	_ driver.QueryerContext     = (*conn)(nil)
 	_ driver.Pinger             = (*conn)(nil)
-
-	// TODO
-	// _ driver.NamedValueChecker  = (*conn)(nil)
+	_ driver.NamedValueChecker  = (*conn)(nil)
 )

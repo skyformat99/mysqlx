@@ -25,6 +25,7 @@ Please wait for it.
 
 ## TODO
 * Binary strings.
+* Large uint64.
 * Correct connection closing.
 * Concurrent tests.
 * Benchmarks.

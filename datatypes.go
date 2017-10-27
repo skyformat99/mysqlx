@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/binary"
 	"math"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -63,7 +64,7 @@ func unmarshalValue(value []byte, column *mysqlx_resultset.ColumnMetaData) (driv
 		if n != len(value) {
 			return nil, bugf("unmarshalValue: failed to decode %#v as UINT", value)
 		}
-		return int64(u64), nil
+		return u64, nil
 
 	case mysqlx_resultset.ColumnMetaData_DOUBLE:
 		u64, err := proto.NewBuffer(value).DecodeFixed64()
@@ -113,6 +114,9 @@ func unmarshalValue(value []byte, column *mysqlx_resultset.ColumnMetaData) (driv
 }
 
 func marshalValue(value driver.Value) (*mysqlx_datatypes.Any, error) {
+	// Due to conn.CheckNamedValue passing on everything, value there can be of any type, not only of the one of
+	// standard driver.Value types. We should handle everything ourselves.
+
 	// nil -> NULL
 	if value == nil {
 		return &mysqlx_datatypes.Any{
@@ -124,12 +128,21 @@ func marshalValue(value driver.Value) (*mysqlx_datatypes.Any, error) {
 	}
 
 	switch value := value.(type) {
-	case int64:
+	case int, int8, int16, int32, int64:
 		return &mysqlx_datatypes.Any{
 			Type: mysqlx_datatypes.Any_SCALAR.Enum(),
 			Scalar: &mysqlx_datatypes.Scalar{
 				Type:       mysqlx_datatypes.Scalar_V_SINT.Enum(),
-				VSignedInt: proto.Int64(value),
+				VSignedInt: proto.Int64(reflect.ValueOf(value).Int()),
+			},
+		}, nil
+
+	case uint, uint8, uint16, uint32, uint64:
+		return &mysqlx_datatypes.Any{
+			Type: mysqlx_datatypes.Any_SCALAR.Enum(),
+			Scalar: &mysqlx_datatypes.Scalar{
+				Type:         mysqlx_datatypes.Scalar_V_UINT.Enum(),
+				VUnsignedInt: proto.Uint64(reflect.ValueOf(value).Uint()),
 			},
 		}, nil
 

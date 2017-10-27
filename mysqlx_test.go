@@ -214,17 +214,17 @@ func TestQueryData(t *testing.T) {
 
 		// SIGNED
 		{`SELECT -42`, nil, int64(-42)},
-		{`SELECT ?`, []interface{}{-42}, int64(-42)},
+		{`SELECT ?`, []interface{}{int64(-42)}, int64(-42)},
 		{`SELECT -0`, nil, int64(0)},
-		{`SELECT ?`, []interface{}{-0}, int64(0)},
+		{`SELECT ?`, []interface{}{int64(-0)}, int64(0)},
 		{`SELECT CAST(NULL AS SIGNED)`, nil, nil},
 		{`SELECT CAST(? AS SIGNED)`, []interface{}{nil}, nil},
 
 		// UNSIGNED
-		{`SELECT CAST(42 AS UNSIGNED)`, nil, int64(42)},
-		{`SELECT CAST(? AS UNSIGNED)`, []interface{}{42}, int64(42)},
-		{`SELECT CAST(0 AS UNSIGNED)`, nil, int64(0)},
-		{`SELECT CAST(? AS UNSIGNED)`, []interface{}{0}, int64(0)},
+		{`SELECT CAST(42 AS UNSIGNED)`, nil, uint64(42)},
+		{`SELECT CAST(? AS UNSIGNED)`, []interface{}{uint64(42)}, uint64(42)},
+		{`SELECT CAST(0 AS UNSIGNED)`, nil, uint64(0)},
+		{`SELECT CAST(? AS UNSIGNED)`, []interface{}{uint64(0)}, uint64(0)},
 		{`SELECT CAST(NULL AS UNSIGNED)`, nil, nil},
 		{`SELECT CAST(? AS UNSIGNED)`, []interface{}{nil}, nil},
 
