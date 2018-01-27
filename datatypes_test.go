@@ -26,6 +26,8 @@ var decimalPairs = []decimalPair{
 }
 
 func TestDecimal(t *testing.T) {
+	t.Parallel()
+
 	for _, p := range decimalPairs {
 		assert.Equal(t, p.expected, unmarshalDecimal(p.b))
 	}

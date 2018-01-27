@@ -10,6 +10,8 @@ import (
 )
 
 func TestAuthData(t *testing.T) {
+	t.Parallel()
+
 	decode := func(s string) []byte {
 		b, err := hex.DecodeString(s)
 		require.NoError(t, err)
@@ -23,6 +25,8 @@ func TestAuthData(t *testing.T) {
 }
 
 func TestSetDefaults(t *testing.T) {
+	t.Parallel()
+
 	u, err := url.Parse("")
 	require.NoError(t, err)
 	require.NoError(t, setDefaults(u))

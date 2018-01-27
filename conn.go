@@ -72,7 +72,9 @@ type conn struct {
 }
 
 func newConn(transport net.Conn, traceF TraceFunc) *conn {
-	traceF("+++ connection created: %s->%s", transport.LocalAddr(), transport.RemoteAddr())
+	local, remote := transport.LocalAddr().String(), transport.RemoteAddr().String()
+	traceF("+++ connection created: %s->%s", local, remote)
+	connectionCreated(local, remote)
 
 	return &conn{
 		transport: transport,
@@ -182,11 +184,11 @@ func open(ctx context.Context, dataSource string, openParams *OpenParams) (*conn
 
 func (c *conn) authenticate(ctx context.Context, database, username, password string) error {
 	if err := c.writeMessage(ctx, &mysqlx_connection.CapabilitiesGet{}); err != nil {
-		return c.close(err)
+		return err
 	}
 	m, err := c.readMessage(ctx)
 	if err != nil {
-		return c.close(err)
+		return err
 	}
 
 	var mechs []string
@@ -221,28 +223,41 @@ func (c *conn) authMySQL41(ctx context.Context, database, username, password str
 	if err := c.writeMessage(ctx, &mysqlx_session.AuthenticateStart{
 		MechName: &mechName,
 	}); err != nil {
-		return c.close(err)
+		return err
 	}
 
 	m, err := c.readMessage(ctx)
 	if err != nil {
-		return c.close(err)
+		return err
 	}
 	cont := m.(*mysqlx_session.AuthenticateContinue)
 
 	if err = c.writeMessage(ctx, &mysqlx_session.AuthenticateContinue{
 		AuthData: authData(database, username, password, cont.AuthData),
 	}); err != nil {
-		return c.close(err)
+		return err
 	}
 
 	if m, err = c.readMessage(ctx); err != nil {
-		return c.close(err)
+		return err
 	}
-	_ = m.(*mysqlx_notice.SessionStateChanged)
+	switch m := m.(type) {
+	case *mysqlx.Error:
+		severity := Severity(m.GetSeverity())
+		return &Error{
+			Severity: severity,
+			Code:     m.GetCode(),
+			SQLState: m.GetSqlState(),
+			Msg:      m.GetMsg(),
+		}
+
+	case *mysqlx_notice.SessionStateChanged:
+	default:
+		bugf("conn.authMySQL41: unhandled type %T", m)
+	}
 
 	if m, err = c.readMessage(ctx); err != nil {
-		return c.close(err)
+		return err
 	}
 	_ = m.(*mysqlx_session.AuthenticateOk)
 
@@ -251,11 +266,13 @@ func (c *conn) authMySQL41(ctx context.Context, database, username, password str
 
 func (c *conn) close(err error) error {
 	c.closeOnce.Do(func() {
+		local, remote := c.transport.LocalAddr().String(), c.transport.RemoteAddr().String()
 		c.closeErr = err
 		e := c.transport.Close()
 		if c.closeErr == nil {
 			c.closeErr = e
 		}
+		connectionClosed(local, remote)
 	})
 
 	c.tracef("--- connection closed: %s->%s", c.transport.LocalAddr(), c.transport.RemoteAddr())

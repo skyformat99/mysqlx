@@ -87,6 +87,7 @@ func dataSource(t *testing.T, database string) *url.URL {
 
 func openDB(t *testing.T, database string) *sql.DB {
 	t.Helper()
+
 	dataSource := dataSource(t, database)
 	db, err := sql.Open("mysqlx", dataSource.String())
 	require.NoError(t, err)
@@ -95,6 +96,8 @@ func openDB(t *testing.T, database string) *sql.DB {
 }
 
 func closeDB(t *testing.T, db *sql.DB) {
+	t.Helper()
+
 	assert.NoError(t, db.Close())
 }
 
@@ -511,4 +514,20 @@ func TestNoDatabase(t *testing.T) {
 	assert.Nil(t, res)
 	assert.Equal(t, &Error{Severity: SeverityError, Code: 1046, SQLState: "3D000", Msg: "No database selected"}, err)
 	assert.EqualError(t, err, "ERROR 1046 (3D000): No database selected")
+}
+
+func TestInvalidPassword(t *testing.T) {
+	assertOpenConnections(0, t.FailNow)
+
+	dataSource := dataSource(t, "")
+	dataSource.User = url.UserPassword(dataSource.User.Username(), "invalid password")
+
+	db, err := sql.Open("mysqlx", dataSource.String())
+	require.NoError(t, err)
+	assertOpenConnections(0, t.FailNow)
+	defer db.Close()
+
+	err = db.Ping()
+	require.Equal(t, &Error{Severity: SeverityFatal, Code: 1045, SQLState: "HY000", Msg: "Invalid user or password"}, err)
+	assertOpenConnections(0, t.FailNow)
 }
