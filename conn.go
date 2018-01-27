@@ -157,10 +157,7 @@ func open(ctx context.Context, dataSource string, openParams *OpenParams) (*conn
 		username = u.User.Username()
 		password, _ = u.User.Password()
 	}
-	if err = c.negotiate(ctx); err != nil {
-		return nil, err
-	}
-	if err = c.auth(ctx, database, username, password); err != nil {
+	if err = c.authenticate(ctx, database, username, password); err != nil {
 		return nil, err
 	}
 
@@ -183,7 +180,7 @@ func open(ctx context.Context, dataSource string, openParams *OpenParams) (*conn
 	return c, nil
 }
 
-func (c *conn) negotiate(ctx context.Context) error {
+func (c *conn) authenticate(ctx context.Context, database, username, password string) error {
 	if err := c.writeMessage(ctx, &mysqlx_connection.CapabilitiesGet{}); err != nil {
 		return c.close(err)
 	}
@@ -193,12 +190,15 @@ func (c *conn) negotiate(ctx context.Context) error {
 	}
 
 	var mechs []string
-	var mysql41Found bool
+	var sha256Found, mysql41Found bool
 	for _, cap := range m.(*mysqlx_connection.Capabilities).Capabilities {
 		if cap.GetName() == "authentication.mechanisms" {
 			for _, value := range cap.Value.Array.Value {
 				s := string(value.Scalar.VString.Value)
-				if s == "MYSQL41" {
+				switch s {
+				case "SHA256_MEMORY":
+					sha256Found = true
+				case "MYSQL41":
 					mysql41Found = true
 				}
 				mechs = append(mechs, s)
@@ -206,13 +206,17 @@ func (c *conn) negotiate(ctx context.Context) error {
 		}
 	}
 
-	if !mysql41Found {
-		return fmt.Errorf("no MYSQL41 authentication mechanism: %v", mechs)
+	switch {
+	case mysql41Found:
+		return c.authMySQL41(ctx, database, username, password)
+	case sha256Found:
+		return fmt.Errorf("SHA256_MEMORY authentication mechanism is not implemented yet")
+	default:
+		return fmt.Errorf("no MYSQL41 and SHA256_MEMORY authentication mechanism: %v", mechs)
 	}
-	return nil
 }
 
-func (c *conn) auth(ctx context.Context, database, username, password string) error {
+func (c *conn) authMySQL41(ctx context.Context, database, username, password string) error {
 	mechName := "MYSQL41"
 	if err := c.writeMessage(ctx, &mysqlx_session.AuthenticateStart{
 		MechName: &mechName,
@@ -502,6 +506,8 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	}
 }
 
+// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
+// If Ping returns driver.ErrBadConn, sql.DB.Ping and sql.DB.PingContext will remove the Conn from pool.
 func (c *conn) Ping(ctx context.Context) error {
 	if _, err := c.ExecContext(ctx, "SELECT 'ping'", nil); err != nil {
 		return driver.ErrBadConn
@@ -521,6 +527,7 @@ func (c *conn) CheckNamedValue(nv *driver.NamedValue) error {
 	return nil
 }
 
+// writeMessage writes one protocol message, returns low-level error if any.
 func (c *conn) writeMessage(ctx context.Context, m proto.Message) error {
 	deadline, _ := ctx.Deadline()
 	if err := c.transport.SetWriteDeadline(deadline); err != nil {
@@ -556,10 +563,13 @@ func (c *conn) writeMessage(ctx context.Context, m proto.Message) error {
 	var head [5]byte
 	binary.LittleEndian.PutUint32(head[:], uint32(len(b))+1)
 	head[4] = byte(t)
-	_, err = (&net.Buffers{head[:], b}).WriteTo(c.transport)
+	_, err = (&net.Buffers{head[:], b}).WriteTo(c.transport) // use writev(2) if available
 	return err
 }
 
+// readMessage reads and returns one next protocol message, or low-level error.
+// Notices are unwrapped: SessionVariableChanged and SessionStateChanged are returned,
+// Warning is currently logged and skipped, and raw Frame is never returned.
 func (c *conn) readMessage(ctx context.Context) (proto.Message, error) {
 	deadline, _ := ctx.Deadline()
 	if err := c.transport.SetReadDeadline(deadline); err != nil {

@@ -70,7 +70,7 @@ type ColumnType struct {
 	// TODO more checks
 }
 
-func openDB(t *testing.T, database string) *sql.DB {
+func dataSource(t *testing.T, database string) *url.URL {
 	t.Helper()
 	setTestTracef(t.Name(), t.Logf)
 
@@ -82,8 +82,13 @@ func openDB(t *testing.T, database string) *sql.DB {
 	q := u.Query()
 	q.Set("_trace", t.Name())
 	u.RawQuery = q.Encode()
+	return u
+}
 
-	db, err := sql.Open("mysqlx", u.String())
+func openDB(t *testing.T, database string) *sql.DB {
+	t.Helper()
+	dataSource := dataSource(t, database)
+	db, err := sql.Open("mysqlx", dataSource.String())
 	require.NoError(t, err)
 	require.NoError(t, db.Ping())
 	return db

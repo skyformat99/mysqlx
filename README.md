@@ -36,4 +36,5 @@ Please wait for it.
 * Time zones.
 * Real prepared statements.
 * Named values.
+* Expose notices and warnings.
 * MUCH MORE.
