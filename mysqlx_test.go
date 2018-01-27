@@ -1,6 +1,7 @@
 package mysqlx
 
 import (
+	"context"
 	"database/sql"
 	"math"
 	"net/url"
@@ -483,6 +484,32 @@ func TestBeginRollback(t *testing.T) {
 	require.NoError(t, err)
 
 	tx, err := db.Begin()
+	require.NoError(t, err)
+
+	_, err = tx.Exec("INSERT INTO TestBeginRollback VALUES (1)")
+	assert.NoError(t, err)
+
+	assert.NoError(t, tx.Rollback())
+	assert.Equal(t, sql.ErrTxDone, tx.Rollback())
+	assert.Equal(t, sql.ErrTxDone, tx.Commit())
+
+	var count int
+	assert.NoError(t, db.QueryRow("SELECT COUNT(*) FROM TestBeginRollback").Scan(&count))
+	assert.Equal(t, 0, count)
+}
+
+func TestBeginRollbackOptions(t *testing.T) {
+	t.Parallel()
+	db := openDB(t, "world_x")
+	defer closeDB(t, db)
+
+	_, err := db.Exec("CREATE TEMPORARY TABLE TestBeginRollback (id int AUTO_INCREMENT, PRIMARY KEY (id))")
+	require.NoError(t, err)
+
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{
+		Isolation: sql.LevelSerializable,
+		ReadOnly:  true,
+	})
 	require.NoError(t, err)
 
 	_, err = tx.Exec("INSERT INTO TestBeginRollback VALUES (1)")

@@ -310,13 +310,38 @@ func (c *conn) Begin() (driver.Tx, error) {
 // If the context is canceled by the user the sql package will
 // call Tx.Rollback before discarding and closing the connection.
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
-	if sql.IsolationLevel(opts.Isolation) != sql.LevelDefault {
+	var chars []string
+	switch sql.IsolationLevel(opts.Isolation) {
+	case sql.LevelDefault:
+		// nothing
+	case sql.LevelReadUncommitted:
+		chars = append(chars, "ISOLATION LEVEL READ UNCOMMITTED")
+	case sql.LevelReadCommitted:
+		chars = append(chars, "ISOLATION LEVEL READ COMMITTED")
+	case sql.LevelRepeatableRead:
+		chars = append(chars, "ISOLATION LEVEL REPEATABLE READ")
+	case sql.LevelSnapshot:
+		// special handling below
+	case sql.LevelSerializable:
+		chars = append(chars, "ISOLATION LEVEL SERIALIZABLE")
+	default:
 		return nil, bugf("conn.BeginTx: isolation level %d is not supported yet", opts.Isolation)
 	}
 	if opts.ReadOnly {
-		return nil, bugf("conn.BeginTx: read-only transactions are not supported yet")
+		chars = append(chars, "READ ONLY")
 	}
-	if _, err := c.ExecContext(ctx, "BEGIN", nil); err != nil {
+	if chars != nil {
+		q := "SET TRANSACTION " + strings.Join(chars, ", ")
+		if _, err := c.ExecContext(ctx, q, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	q := "START TRANSACTION"
+	if sql.IsolationLevel(opts.Isolation) == sql.LevelSnapshot {
+		q += " WITH CONSISTENT SNAPSHOT"
+	}
+	if _, err := c.ExecContext(ctx, q, nil); err != nil {
 		return nil, err
 	}
 	return &tx{
