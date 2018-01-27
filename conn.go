@@ -145,6 +145,11 @@ func open(ctx context.Context, dataSource string, openParams *OpenParams) (*conn
 		return nil, err
 	}
 	c := newConn(conn, traceF)
+	defer func() {
+		if err != nil {
+			c.close(err)
+		}
+	}()
 
 	database := strings.TrimPrefix(u.Path, "/")
 	var username, password string
@@ -208,8 +213,6 @@ func (c *conn) negotiate(ctx context.Context) error {
 }
 
 func (c *conn) auth(ctx context.Context, database, username, password string) error {
-	// TODO use password
-
 	mechName := "MYSQL41"
 	if err := c.writeMessage(ctx, &mysqlx_session.AuthenticateStart{
 		MechName: &mechName,
