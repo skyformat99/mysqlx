@@ -4,18 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
-	"net"
+	"net/url"
 )
-
-type OpenParams struct {
-	Dialer *net.Dialer
-	Trace  TraceFunc
-}
-
-var defaultOpenParams = &OpenParams{
-	Dialer: new(net.Dialer),
-	Trace:  noTrace,
-}
 
 // Driver implements database/sql/driver.Driver interface.
 type Driver struct{}
@@ -23,14 +13,22 @@ type Driver struct{}
 // Open returns a new connection to the database. See README for dataSource format.
 // The returned connection may be used only by one goroutine at a time.
 func (Driver) Open(dataSource string) (driver.Conn, error) {
-	return open(context.Background(), dataSource, defaultOpenParams)
+	u, err := url.Parse(dataSource)
+	if err != nil {
+		return nil, err
+	}
+	ds, err := ParseDataSource(u)
+	if err != nil {
+		return nil, err
+	}
+	return open(context.Background(), ds)
 }
 
-// OpenWithParams is a variant of Open with specified context and other parameters.
-// Context is used only for connection establishing: dialing (with params.Dialer.DialContext), negotiating
+// OpenCtx is a variant of Open with specified context and DataSource struct.
+// Context is used only for connection establishing: dialing, negotiating
 // and authenticating. Canceling the context after the connection is established does nothing.
-func (Driver) OpenWithParams(ctx context.Context, dataSource string, params *OpenParams) (driver.Conn, error) {
-	return open(ctx, dataSource, params)
+func (Driver) OpenCtx(ctx context.Context, dataSource *DataSource) (driver.Conn, error) {
+	return open(ctx, dataSource)
 }
 
 func init() {

@@ -21,7 +21,6 @@ Please wait for it.
 ## Datasource parameters
 
 * `_trace`
-* `_open_timeout`
 
 ## TODO
 * Binary strings.

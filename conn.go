@@ -9,11 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/golang/protobuf/proto"
 
@@ -82,97 +80,32 @@ func newConn(transport net.Conn, traceF TraceFunc) *conn {
 	}
 }
 
-func setDefaults(u *url.URL) error {
-	if u.Opaque != "" {
-		return fmt.Errorf("invalid data source: %s", u.String())
-	}
-
-	if u.Scheme == "" {
-		u.Scheme = "tcp"
-	}
-	host, port, _ := net.SplitHostPort(u.Host)
-	if host == "" {
-		host = "localhost"
-	}
-	if port == "" {
-		port = "33060"
-	}
-	u.Host = net.JoinHostPort(host, port)
-
-	return nil
-}
-
-func open(ctx context.Context, dataSource string, openParams *OpenParams) (*conn, error) {
-	u, err := url.Parse(dataSource)
+func open(ctx context.Context, dataSource *DataSource) (*conn, error) {
+	conn, err := new(net.Dialer).DialContext(ctx, "tcp", dataSource.hostPort())
 	if err != nil {
 		return nil, err
 	}
-	if err = setDefaults(u); err != nil {
-		return nil, err
-	}
-
-	// check and handle parameters, extract session variables
-	params := u.Query()
-	vars := make(map[string]string, len(params))
-	traceF := openParams.Trace
-	for k, vs := range params {
-		if len(vs) != 1 {
-			return nil, fmt.Errorf("%d values for parameter %q", len(vs), k)
-		}
-		v := vs[0]
-
-		if !strings.HasPrefix(k, "_") {
-			vars[k] = v
-			continue
-		}
-
-		switch k {
-		case "_trace":
-			traceF = getTracef(v)
-		case "_open_timeout":
-			d, err := time.ParseDuration(v)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse %s: %s", k, err)
-			}
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, d)
-			defer cancel()
-		default:
-			return nil, fmt.Errorf("unexpected parameter %q", k)
-		}
-	}
-
-	conn, err := openParams.Dialer.DialContext(ctx, u.Scheme, u.Host)
-	if err != nil {
-		return nil, err
-	}
-	c := newConn(conn, traceF)
+	c := newConn(conn, dataSource.Trace)
 	defer func() {
 		if err != nil {
 			c.close(err)
 		}
 	}()
 
-	database := strings.TrimPrefix(u.Path, "/")
-	var username, password string
-	if u.User != nil {
-		username = u.User.Username()
-		password, _ = u.User.Password()
-	}
-	if err = c.authenticate(ctx, database, username, password); err != nil {
+	if err = c.authenticate(ctx, dataSource.Database, dataSource.Username, dataSource.Password); err != nil {
 		return nil, err
 	}
 
 	// set session variables
-	keys := make([]string, 0, len(vars))
-	for k := range vars {
+	keys := make([]string, 0, len(dataSource.SessionVariables))
+	for k := range dataSource.SessionVariables {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
 		nv := []driver.NamedValue{{
 			Ordinal: 1,
-			Value:   vars[k],
+			Value:   dataSource.SessionVariables[k],
 		}}
 		if _, err = c.ExecContext(ctx, "SET SESSION "+k+" = ?", nv); err != nil {
 			return nil, err
@@ -212,7 +145,7 @@ func (c *conn) authenticate(ctx context.Context, database, username, password st
 	case mysql41Found:
 		return c.authMySQL41(ctx, database, username, password)
 	case sha256Found:
-		return fmt.Errorf("SHA256_MEMORY authentication mechanism is not implemented yet")
+		return bugf("SHA256_MEMORY authentication mechanism is not implemented yet")
 	default:
 		return fmt.Errorf("no MYSQL41 and SHA256_MEMORY authentication mechanism: %v", mechs)
 	}
@@ -585,6 +518,8 @@ func (c *conn) writeMessage(ctx context.Context, m proto.Message) error {
 	switch m.(type) {
 	case *mysqlx_connection.CapabilitiesGet:
 		t = mysqlx.ClientMessages_CON_CAPABILITIES_GET
+	case *mysqlx_connection.CapabilitiesSet:
+		t = mysqlx.ClientMessages_CON_CAPABILITIES_SET
 	case *mysqlx_connection.Close:
 		t = mysqlx.ClientMessages_CON_CLOSE
 
