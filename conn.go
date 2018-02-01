@@ -669,8 +669,8 @@ func (c *conn) readMessage(ctx context.Context) (proto.Message, error) {
 	// unwrap notice frames, return variable and state changes, skip over warnings
 	if t == mysqlx.ServerMessages_NOTICE {
 		f := m.(*mysqlx_notice.Frame)
-		switch f.GetType() {
-		case 1:
+		switch mysqlx_notice.Frame_Type(f.GetType()) {
+		case mysqlx_notice.Frame_WARNING:
 			m = new(mysqlx_notice.Warning)
 			if err := proto.Unmarshal(f.Payload, m); err != nil {
 				return nil, err
@@ -679,12 +679,12 @@ func (c *conn) readMessage(ctx context.Context) (proto.Message, error) {
 			// TODO expose warnings?
 			c.tracef("<== %T %v: %T %v", f, f, m, m)
 			return c.readMessage(ctx)
-		case 2:
+		case mysqlx_notice.Frame_SESSION_VARIABLE_CHANGED:
 			m = new(mysqlx_notice.SessionVariableChanged)
 			if err := proto.Unmarshal(f.Payload, m); err != nil {
 				return nil, err
 			}
-		case 3:
+		case mysqlx_notice.Frame_SESSION_STATE_CHANGED:
 			m = new(mysqlx_notice.SessionStateChanged)
 			if err := proto.Unmarshal(f.Payload, m); err != nil {
 				return nil, err

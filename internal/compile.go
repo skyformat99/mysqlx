@@ -12,6 +12,16 @@ import (
 	"strings"
 )
 
+func run(name string, arg ...string) {
+	cmd := exec.Command(name, arg...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	log.Print(strings.Join(cmd.Args, " "))
+	if err := cmd.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 	log.SetFlags(0)
 	flag.Usage = func() {
@@ -42,12 +52,8 @@ func main() {
 	m := strings.Join(mapping, ",")
 	for _, c := range commands {
 		c[1] = fmt.Sprintf(c[1], m)
-		cmd := exec.Command(c[0], c[1:]...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		log.Print(strings.Join(cmd.Args, " "))
-		if err = cmd.Run(); err != nil {
-			log.Fatal(err)
-		}
+		run(c[0], c[1:]...)
 	}
+
+	run("gofmt", "-w", "-s", ".")
 }
