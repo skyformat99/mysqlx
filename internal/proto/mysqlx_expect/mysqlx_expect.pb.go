@@ -18,7 +18,7 @@ package mysqlx_expect
 import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import _ "github.com/AlekSi/mysqlx/internal/mysqlx"
+import _ "github.com/AlekSi/mysqlx/internal/proto/mysqlx"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal

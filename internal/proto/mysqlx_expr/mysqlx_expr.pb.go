@@ -36,7 +36,7 @@ package mysqlx_expr
 import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import Mysqlx_Datatypes "github.com/AlekSi/mysqlx/internal/mysqlx_datatypes"
+import Mysqlx_Datatypes "github.com/AlekSi/mysqlx/internal/proto/mysqlx_datatypes"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal

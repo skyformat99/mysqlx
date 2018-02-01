@@ -29,9 +29,9 @@ package mysqlx_crud
 import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import _ "github.com/AlekSi/mysqlx/internal/mysqlx"
-import Mysqlx_Expr "github.com/AlekSi/mysqlx/internal/mysqlx_expr"
-import Mysqlx_Datatypes "github.com/AlekSi/mysqlx/internal/mysqlx_datatypes"
+import _ "github.com/AlekSi/mysqlx/internal/proto/mysqlx"
+import Mysqlx_Expr "github.com/AlekSi/mysqlx/internal/proto/mysqlx_expr"
+import Mysqlx_Datatypes "github.com/AlekSi/mysqlx/internal/proto/mysqlx_datatypes"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal

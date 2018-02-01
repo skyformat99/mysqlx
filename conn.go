@@ -16,13 +16,13 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	"github.com/AlekSi/mysqlx/internal/mysqlx"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_connection"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_datatypes"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_notice"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_resultset"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_session"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_sql"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_connection"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_datatypes"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_notice"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_resultset"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_session"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_sql"
 )
 
 // TODO make this configurable?

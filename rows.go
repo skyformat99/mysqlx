@@ -6,9 +6,9 @@ import (
 	"io"
 	"math"
 
-	"github.com/AlekSi/mysqlx/internal/mysqlx_notice"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_resultset"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_sql"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_notice"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_resultset"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_sql"
 )
 
 // rows is an iterator over an executed query's results.

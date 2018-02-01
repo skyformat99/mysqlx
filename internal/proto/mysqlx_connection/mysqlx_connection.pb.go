@@ -19,8 +19,8 @@ package mysqlx_connection
 import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import Mysqlx_Datatypes "github.com/AlekSi/mysqlx/internal/mysqlx_datatypes"
-import _ "github.com/AlekSi/mysqlx/internal/mysqlx"
+import Mysqlx_Datatypes "github.com/AlekSi/mysqlx/internal/proto/mysqlx_datatypes"
+import _ "github.com/AlekSi/mysqlx/internal/proto/mysqlx"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal

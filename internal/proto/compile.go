@@ -45,9 +45,13 @@ func main() {
 			log.Fatal(err)
 		}
 
-		mapping[i] = fmt.Sprintf("M%s=github.com/AlekSi/mysqlx/internal/%s", f, packageName)
+		mapping[i] = fmt.Sprintf("M%s=github.com/AlekSi/mysqlx/internal/proto/%s", f, packageName)
 		commands[i] = []string{"protoc", "--go_out=import_path=" + packageName + ",%s:" + packageName, f}
 	}
+
+	// for _, m := range mapping {
+	// 	log.Print(m)
+	// }
 
 	m := strings.Join(mapping, ",")
 	for _, c := range commands {

@@ -13,7 +13,7 @@ func TestParseDataSource(t *testing.T) {
 	t.Parallel()
 
 	for s, expected := range map[string]*DataSource{
-		"mysqlx://my_user:my_password@127.0.0.1:33060/world_x?_tls-insecure=true&time_zone=UTC": &DataSource{
+		"mysqlx://my_user:my_password@127.0.0.1:33060/world_x?_tls-insecure=true&time_zone=UTC": {
 			Host:     "127.0.0.1",
 			Port:     33060,
 			Database: "world_x",
@@ -23,6 +23,7 @@ func TestParseDataSource(t *testing.T) {
 				InsecureSkipVerify: true,
 			},
 			SessionVariables: map[string]string{"time_zone": "UTC"},
+			Trace:            noTrace,
 		},
 	} {
 		t.Run(s, func(t *testing.T) {

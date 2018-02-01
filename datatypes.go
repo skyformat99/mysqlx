@@ -11,8 +11,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	"github.com/AlekSi/mysqlx/internal/mysqlx_datatypes"
-	"github.com/AlekSi/mysqlx/internal/mysqlx_resultset"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_datatypes"
+	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_resultset"
 )
 
 // TODO optimize?
