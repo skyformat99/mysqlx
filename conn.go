@@ -3,6 +3,7 @@ package mysqlx
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/tls"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/binary"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/AlekSi/mysqlx/internal/mysqlx"
 	"github.com/AlekSi/mysqlx/internal/mysqlx_connection"
+	"github.com/AlekSi/mysqlx/internal/mysqlx_datatypes"
 	"github.com/AlekSi/mysqlx/internal/mysqlx_notice"
 	"github.com/AlekSi/mysqlx/internal/mysqlx_resultset"
 	"github.com/AlekSi/mysqlx/internal/mysqlx_session"
@@ -92,6 +94,9 @@ func open(ctx context.Context, dataSource *DataSource) (*conn, error) {
 		}
 	}()
 
+	if err = c.negotiate(ctx, dataSource.TLSConfig); err != nil {
+		return nil, err
+	}
 	if err = c.authenticate(ctx, dataSource.Database, dataSource.Username, dataSource.Password); err != nil {
 		return nil, err
 	}
@@ -113,6 +118,59 @@ func open(ctx context.Context, dataSource *DataSource) (*conn, error) {
 	}
 
 	return c, nil
+}
+
+func (c *conn) negotiate(ctx context.Context, tlsConfig *tls.Config) error {
+	if tlsConfig == nil {
+		return nil
+	}
+
+	if err := c.writeMessage(ctx, &mysqlx_connection.CapabilitiesGet{}); err != nil {
+		return err
+	}
+	m, err := c.readMessage(ctx)
+	if err != nil {
+		return err
+	}
+
+	var tlsFound bool
+	for _, cap := range m.(*mysqlx_connection.Capabilities).Capabilities {
+		if cap.GetName() == "tls" {
+			tlsFound = true
+		}
+	}
+
+	// enable TLS if possible
+	if tlsFound {
+		cap := &mysqlx_connection.CapabilitiesSet{
+			Capabilities: &mysqlx_connection.Capabilities{
+				Capabilities: []*mysqlx_connection.Capability{{
+					Name: proto.String("tls"),
+					Value: &mysqlx_datatypes.Any{
+						Type: mysqlx_datatypes.Any_SCALAR.Enum(),
+						Scalar: &mysqlx_datatypes.Scalar{
+							Type:  mysqlx_datatypes.Scalar_V_BOOL.Enum(),
+							VBool: proto.Bool(true),
+						},
+					},
+				}},
+			},
+		}
+		if err := c.writeMessage(ctx, cap); err != nil {
+			return err
+		}
+		if _, err := c.readMessage(ctx); err != nil {
+			return err
+		}
+		tlsConn := tls.Client(c.transport, tlsConfig)
+		if err := tlsConn.Handshake(); err != nil {
+			tlsConn.Close()
+			return err
+		}
+		c.transport = tlsConn
+	}
+
+	return nil
 }
 
 func (c *conn) authenticate(ctx context.Context, database, username, password string) error {
@@ -655,4 +713,7 @@ var (
 	_ driver.QueryerContext     = (*conn)(nil)
 	_ driver.Pinger             = (*conn)(nil)
 	_ driver.NamedValueChecker  = (*conn)(nil)
+
+	// TODO
+	// _ driver.Connector = (*conn)(nil)
 )

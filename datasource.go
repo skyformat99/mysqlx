@@ -1,6 +1,9 @@
 package mysqlx
 
 import (
+	"context"
+	"crypto/tls"
+	"database/sql/driver"
 	"fmt"
 	"net"
 	"net/url"
@@ -16,7 +19,17 @@ type DataSource struct {
 	Password         string
 	SessionVariables map[string]string
 
+	TLSConfig *tls.Config
+
 	Trace TraceFunc
+}
+
+func (ds *DataSource) Connect(ctx context.Context) (driver.Conn, error) {
+	return open(ctx, ds)
+}
+
+func (ds *DataSource) Driver() driver.Driver {
+	return Driver
 }
 
 func ParseDataSource(u *url.URL) (*DataSource, error) {
@@ -59,8 +72,31 @@ func ParseDataSource(u *url.URL) (*DataSource, error) {
 		}
 
 		switch k {
+		case "_tls":
+			enable, err := strconv.ParseBool(v)
+			if err != nil {
+				return nil, err
+			}
+			if enable {
+				ds.TLSConfig = &tls.Config{
+					ServerName: ds.Host,
+				}
+			}
+
+		case "_tls-insecure":
+			insecure, err := strconv.ParseBool(v)
+			if err != nil {
+				return nil, err
+			}
+			if insecure {
+				ds.TLSConfig = &tls.Config{
+					InsecureSkipVerify: true,
+				}
+			}
+
 		case "_trace":
 			ds.Trace = getTracef(v)
+
 		default:
 			return nil, fmt.Errorf("unexpected parameter %q", k)
 		}
@@ -88,6 +124,20 @@ func (ds *DataSource) URL() *url.URL {
 	for k, v := range ds.SessionVariables {
 		q.Set(k, v)
 	}
+
+	if ds.TLSConfig != nil {
+		if ds.TLSConfig.InsecureSkipVerify {
+			q.Set("_tls-insecure", "true")
+		} else {
+			q.Set("_tls", "true")
+		}
+	}
+
 	u.RawQuery = q.Encode()
 	return u
 }
+
+// check interfaces
+var (
+// TODO _ driver.Connector = (*Connector)(nil)
+)

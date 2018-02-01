@@ -1,6 +1,7 @@
 package mysqlx
 
 import (
+	"crypto/tls"
 	"net/url"
 	"testing"
 
@@ -12,12 +13,15 @@ func TestParseDataSource(t *testing.T) {
 	t.Parallel()
 
 	for s, expected := range map[string]*DataSource{
-		"mysqlx://my_user:my_password@127.0.0.1:33060/world_x?time_zone=UTC": &DataSource{
-			Host:             "127.0.0.1",
-			Port:             33060,
-			Database:         "world_x",
-			Username:         "my_user",
-			Password:         "my_password",
+		"mysqlx://my_user:my_password@127.0.0.1:33060/world_x?_tls-insecure=true&time_zone=UTC": &DataSource{
+			Host:     "127.0.0.1",
+			Port:     33060,
+			Database: "world_x",
+			Username: "my_user",
+			Password: "my_password",
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
 			SessionVariables: map[string]string{"time_zone": "UTC"},
 		},
 	} {
