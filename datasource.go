@@ -39,6 +39,7 @@ func ParseDataSource(u *url.URL) (*DataSource, error) {
 	ds := &DataSource{
 		Host:     u.Hostname(),
 		Database: strings.TrimPrefix(u.Path, "/"),
+		Trace:    noTrace,
 	}
 
 	// set port if given
