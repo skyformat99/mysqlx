@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"reflect"
 	"strconv"
@@ -16,7 +17,11 @@ import (
 )
 
 // TODO optimize?
-func unmarshalDecimal(value []byte) string {
+func unmarshalDecimal(value []byte) (string, error) {
+	if len(value) < 2 {
+		return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %#v", value)
+	}
+
 	scale := int(value[0])
 	sign := value[len(value)-1]
 	var s string
@@ -31,15 +36,18 @@ func unmarshalDecimal(value []byte) string {
 		sign = sign << 4
 	}
 	if scale != 0 {
+		if scale >= len(s) {
+			return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %#v", value)
+		}
 		s = s[:len(s)-scale] + "." + s[len(s)-scale:]
 	}
 	switch sign {
 	case 0xd0:
-		return "-" + s
+		return "-" + s, nil
 	case 0xc0:
-		return s
+		return s, nil
 	default:
-		return bugf("unmarshalDecimal: failed to parse decimal %#v", value).Error()
+		return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %x", value)
 	}
 }
 
@@ -81,7 +89,7 @@ func unmarshalValue(value []byte, column *mysqlx_resultset.ColumnMetaData) (driv
 		return float64(math.Float32frombits(uint32(u64))), nil
 
 	case mysqlx_resultset.ColumnMetaData_DECIMAL:
-		return unmarshalDecimal(value), nil
+		return unmarshalDecimal(value)
 
 	case mysqlx_resultset.ColumnMetaData_BYTES, mysqlx_resultset.ColumnMetaData_ENUM:
 		// VARCHAR, CHAR, GEOMETRY (and also NULL, but we handle it separately)

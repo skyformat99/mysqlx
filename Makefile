@@ -17,11 +17,17 @@ cover: test
 	go tool cover -html=coverage.txt
 
 bench: test
-	go test -run=NONE -bench=. -benchtime=5s -count=3 -benchmem
+	go test -run=NONE -bench=. -benchtime=3s -count=5 -benchmem | tee bench.txt
 
 proto:
 	cd internal && go run compile.go
 
+fuzz: test
+	go-fuzz-build -func=FuzzUnmarshalDecimal github.com/AlekSi/mysqlx
+	go-fuzz -bin=mysqlx-fuzz.zip -workdir=fuzz/UnmarshalDecimal
+
 seed:
 	docker exec -ti mysqlx_mysql_1 sh -c 'mysql < /test_db/mysql/world_x/world_x.sql'
 	docker exec -ti mysqlx_mysql_1 mysql -e "GRANT ALL ON world_x.* TO 'my_user'@'%';"
+
+.PHONY: fuzz
