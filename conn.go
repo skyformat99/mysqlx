@@ -183,16 +183,18 @@ func (c *conn) authenticate(ctx context.Context, database, username, password st
 	}
 
 	var mechs []string
-	var sha256Found, mysql41Found bool
+	var mysql41Found, plainFound bool
 	for _, cap := range m.(*mysqlx_connection.Capabilities).Capabilities {
 		if cap.GetName() == "authentication.mechanisms" {
 			for _, value := range cap.Value.Array.Value {
 				s := string(value.Scalar.VString.Value)
 				switch s {
-				case "SHA256_MEMORY":
-					sha256Found = true
+				// case "SHA256_MEMORY":
+				// 	sha256Found = true
 				case "MYSQL41":
 					mysql41Found = true
+				case "PLAIN":
+					plainFound = true
 				}
 				mechs = append(mechs, s)
 			}
@@ -200,19 +202,96 @@ func (c *conn) authenticate(ctx context.Context, database, username, password st
 	}
 
 	switch {
+	case plainFound:
+		return c.authPlain(ctx, database, username, password)
 	case mysql41Found:
 		return c.authMySQL41(ctx, database, username, password)
-	case sha256Found:
-		return bugf("SHA256_MEMORY authentication mechanism is not implemented yet")
+	// case sha256Found:
+	// 	return c.authSHA256(ctx, database, username, password)
 	default:
 		return fmt.Errorf("no MYSQL41 and SHA256_MEMORY authentication mechanism: %v", mechs)
 	}
 }
 
-func (c *conn) authMySQL41(ctx context.Context, database, username, password string) error {
-	mechName := "MYSQL41"
+func (c *conn) authPlain(ctx context.Context, database, username, password string) error {
 	if err := c.writeMessage(ctx, &mysqlx_session.AuthenticateStart{
-		MechName: &mechName,
+		MechName: proto.String("PLAIN"),
+		AuthData: []byte(database + "\x00" + username + "\x00" + password),
+	}); err != nil {
+		return err
+	}
+
+	var m proto.Message
+	var err error
+	if m, err = c.readMessage(ctx); err != nil {
+		return err
+	}
+	switch m := m.(type) {
+	case *mysqlx.Error:
+		severity := Severity(m.GetSeverity())
+		return &Error{
+			Severity: severity,
+			Code:     m.GetCode(),
+			SQLState: m.GetSqlState(),
+			Msg:      m.GetMsg(),
+		}
+
+	case *mysqlx_notice.SessionStateChanged:
+	default:
+		bugf("conn.authPlain: unhandled type %T", m)
+	}
+
+	if m, err = c.readMessage(ctx); err != nil {
+		return err
+	}
+	switch m := m.(type) {
+	case *mysqlx_session.AuthenticateOk:
+	default:
+		bugf("conn.authPlain: unhandled type %T", m)
+	}
+
+	return nil
+}
+
+/*
+func (c *conn) authSHA256(ctx context.Context, database, username, password string) error {
+	if err := c.writeMessage(ctx, &mysqlx_session.AuthenticateStart{
+		MechName: proto.String("SHA256_MEMORY"),
+	}); err != nil {
+		return err
+	}
+
+	m, err := c.readMessage(ctx)
+	if err != nil {
+		return err
+	}
+	cont := m.(*mysqlx_session.AuthenticateContinue)
+
+	authData := database + "\x00" + username + "\x00"
+	if password != "" {
+		scr := scrambleSHA256(password, cont.AuthData)
+		c.tracef("password = %q, authData = %02x, scrambled = %02x", password, cont.AuthData, scr)
+		authData += fmt.Sprintf("%02x", scr)
+	}
+	if err = c.writeMessage(ctx, &mysqlx_session.AuthenticateContinue{
+		AuthData: []byte(authData),
+	}); err != nil {
+		return err
+	}
+
+	if m, err = c.readMessage(ctx); err != nil {
+		return err
+	}
+
+	_ = m
+
+	return nil
+}
+*/
+
+func (c *conn) authMySQL41(ctx context.Context, database, username, password string) error {
+	if err := c.writeMessage(ctx, &mysqlx_session.AuthenticateStart{
+		MechName: proto.String("MYSQL41"),
 	}); err != nil {
 		return err
 	}
