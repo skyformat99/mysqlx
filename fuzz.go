@@ -3,7 +3,7 @@
 package mysqlx
 
 func FuzzUnmarshalDecimal(data []byte) int {
-	d, err := unmarshalDecimal(data)
+	_, err := unmarshalDecimal(data)
 	if err != nil {
 		return 0
 	}
