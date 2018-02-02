@@ -44,7 +44,7 @@ func TestUnmarshalDecimal(t *testing.T) {
 
 	for _, p := range decimalPairs {
 		d, err := unmarshalDecimal(p.b)
-		assert.Equal(t, p.valid, err == nil)
+		assert.Equal(t, p.valid, err == nil, "%s", err)
 		assert.Equal(t, p.expected, d)
 	}
 }

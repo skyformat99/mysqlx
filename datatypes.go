@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"strconv"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -16,26 +15,32 @@ import (
 	"github.com/AlekSi/mysqlx/internal/proto/mysqlx_resultset"
 )
 
-// TODO optimize?
+var btoa = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
 func unmarshalDecimal(value []byte) (string, error) {
 	if len(value) < 2 {
 		return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %#v", value)
 	}
 
-	scale := int(value[0])
 	sign := value[len(value)-1]
 	var s string
 	for _, b := range value[1 : len(value)-1] {
-		h := int((b >> 4) & 0x0f)
-		l := int(b & 0x0f)
-		s += strconv.Itoa(h) + strconv.Itoa(l)
+		h := (b >> 4) & 0x0f
+		l := b & 0x0f
+		if h > 9 || l > 9 {
+			return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %#v", value)
+		}
+		s += btoa[h] + btoa[l]
 	}
 	if sign != 0xd0 && sign != 0xc0 {
-		h := int((sign >> 4) & 0x0f)
-		s += strconv.Itoa(h)
+		h := (sign >> 4) & 0x0f
+		if h > 9 {
+			return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %#v", value)
+		}
+		s += btoa[h]
 		sign = sign << 4
 	}
-	if scale != 0 {
+	if scale := int(value[0]); scale != 0 {
 		if scale >= len(s) {
 			return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %#v", value)
 		}
@@ -47,7 +52,7 @@ func unmarshalDecimal(value []byte) (string, error) {
 	case 0xc0:
 		return s, nil
 	default:
-		return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %x", value)
+		return "", fmt.Errorf("unmarshalDecimal: failed to parse decimal %#v", value)
 	}
 }
 
