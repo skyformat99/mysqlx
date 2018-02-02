@@ -167,18 +167,21 @@ func TestQueryTableCountryLanguage(t *testing.T) {
 	require.Len(t, types, 4)
 	for i, expected := range []ColumnType{
 		// TODO convert internal X Protocol types to MySQL types (?)
+		// https://dev.mysql.com/doc/internals/en/x-protocol-messages-messages.html
 		{"CountryCode", "BYTES", 3 * 3}, // CHAR(3) (inlike VARCHAR) stores 3 bytes per utf8 rune
 		{"Language", "BYTES", 30 * 3},
-		{"IsOfficial", "ENUM", 1 * 3},
+		{"IsOfficial", "ENUM", -1}, // ENUM should not have length; in practice we have 3 for MySQL 5.7 and 0 for MySQL 8.0
 		{"Percentage", "FLOAT", 4},
 	} {
 		assert.Equal(t, expected.Name, types[i].Name(), "type %+v", types[i])
 		assert.Equal(t, expected.DatabaseTypeName, types[i].DatabaseTypeName(), "type %+v", types[i])
-		l, ok := types[i].Length()
-		if !ok {
-			l = -1
+		if expected.DatabaseTypeName != "ENUM" {
+			l, ok := types[i].Length()
+			if !ok {
+				l = -1
+			}
+			assert.Equal(t, expected.Length, l, "type %+v", types[i])
 		}
-		assert.Equal(t, expected.Length, l, "type %+v", types[i])
 		// TODO more checks
 	}
 
