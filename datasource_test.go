@@ -23,7 +23,6 @@ func TestParseDataSource(t *testing.T) {
 				InsecureSkipVerify: true,
 			},
 			SessionVariables: map[string]string{"time_zone": "UTC"},
-			Trace:            noTrace,
 		},
 	} {
 		t.Run(s, func(t *testing.T) {
@@ -33,8 +32,9 @@ func TestParseDataSource(t *testing.T) {
 			require.NoError(t, err)
 			actual, err := ParseDataSource(u)
 			require.NoError(t, err)
+			actual.Trace = nil // "Func values are deeply equal if both are nil; otherwise they are not deeply equal."
 			assert.Equal(t, expected, actual)
-			assert.Equal(t, u, actual.URL(), "%s")
+			assert.Equal(t, u, actual.URL())
 		})
 	}
 }
